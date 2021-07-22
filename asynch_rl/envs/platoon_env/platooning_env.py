@@ -304,7 +304,7 @@ class PlatoonEnv(gym.Env):
 
         
     #####################################################################################################
-    def reset(self, save_history = False):
+    def reset(self, save_history = False, **kwargs):
                 
         self.duration = 0
         initial_distance =  self.ref_distance + (2*np.random.random()-1)*0.8*self.max_tracking_error
