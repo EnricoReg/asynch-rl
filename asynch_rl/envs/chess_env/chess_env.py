@@ -23,8 +23,8 @@ colorama.init()
 
 class Chess(gym.Env):
     
-    def __init__(self, use_NN = False, max_n_moves = 60, pause = 0, rewards = [100,50, 1, 1e6], \
-                 update_boards_bank = False, random_init = True, print_out = False, \
+    def __init__(self, use_NN = False, max_n_moves = 200, pause = 0, rewards = [200, 50, 1, 1000], \
+                 update_boards_bank = False, random_init = False, print_out = False, \
                      pure_resets_pctg = 0.1 , act_nD_flattened = None, evaluate_critical = False):
         
         self.env_type = 'Chess'
@@ -52,8 +52,8 @@ class Chess(gym.Env):
         self.action_space = spaces.Box(low=np.array([0,0,0]), high=np.array([15,7,7])) #, shape=(size__,))
         
         self.board_bank = []
-        if self.random_init:
-            self.load_board_bank(self.evaluate_critical)
+        #if self.random_init:
+        self.load_board_bank(self.evaluate_critical)
 
         
     ###################################
@@ -385,16 +385,18 @@ class Chess(gym.Env):
             self.next_mover = 'opponent'
             if self.print_out:
                 self.render(action)
-            reward = 0
-            mate_check = self.check_mate(own = False)
+            # basic reward for completing a valid move
+            reward = self.rewards[2]
+            mate_check = self.check_mate(own = True)
             if mate_check:
                 if mate_check == 1:
+                    # win game reward
                     reward = self.rewards[0]
                     done = True
                     info['winner'] = 'player'
                     info['outcome'] = 'finalized'
                 elif mate_check == 2:
-                    reward = 0
+                    reward = self.rewards[1]
                     done = True
                     info['winner'] = 'draw'
                     info['outcome'] = 'finalized'
@@ -404,7 +406,7 @@ class Chess(gym.Env):
                 self.next_mover = 'player'
                 if self.print_out:
                     self.render(opp_action, own = False)
-                mate_check = self.check_mate()
+                mate_check = self.check_mate(own = False)
                 if mate_check:
                     if mate_check == 1:
                         reward = -self.rewards[0]
@@ -412,13 +414,14 @@ class Chess(gym.Env):
                         info['winner'] = 'opponent'
                         info['outcome'] = 'finalized'
                     elif mate_check == 2:
-                        reward = -self.rewards[1]
+                        reward = self.rewards[1]
                         done = True
                         info['winner'] = 'draw'
                         info['outcome'] = 'finalized'
                 elif self.update_boards_bank:
                     self.recorded_boards.append(self.get_state().tolist())
         else:
+            # invalid move!!
             reward = -self.rewards[3]
             done = True
             info['outcome'] = 'fail'
@@ -863,13 +866,13 @@ if __name__ == "__main__":
     pr.enable()
     """
 
-    game = Chess(print_out = False, pause = 0, evaluate_critical=False, max_n_moves = 50, \
+    game = Chess(print_out = True, pause = 0.25, evaluate_critical=False, max_n_moves = 200, \
                  random_init = False, update_boards_bank = True)
     game.reset()
     done = False
     
     
-    for _ in range(100):
+    for _ in range(1):
 
         game.reset()
         done = False

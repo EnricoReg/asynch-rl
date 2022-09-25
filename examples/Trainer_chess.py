@@ -100,7 +100,7 @@ parser.add_argument(
 
 parser.add_argument(
   "-rw", "--rewards",  nargs="*",  # 0 or more values expected => creates a list
-  dest = "rewards_list", type=int, default=[100,50, 1, 1e3],  # default if nothing is provided
+  dest = "rewards_list", type=int, default=[200,50, 1, 1e3],  # default if nothing is provided
 )
 
 parser.add_argument("-sim", "--sim-length-max", dest="sim_length_max", type=int, default=200,
