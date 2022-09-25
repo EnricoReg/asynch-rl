@@ -9,7 +9,7 @@ import numpy as np
 #import sys
 import time
 import gym
-from gym import spaces
+from gym.spaces import MultiDiscrete
 import torch
 import csv
 import random
@@ -27,6 +27,7 @@ class Chess(gym.Env):
                  update_boards_bank = False, random_init = False, print_out = False, \
                      pure_resets_pctg = 0.1 , act_nD_flattened = None, evaluate_critical = False):
         
+        print('Entering chess environment')
         self.env_type = 'Chess'
         self.chessboard = np.zeros((8,8),dtype = np.int)
         self.chessboard.setflags(write=1)
@@ -45,11 +46,21 @@ class Chess(gym.Env):
         self.random_init = random_init
         self.pure_resets_pctg = pure_resets_pctg  
         self.evaluate_critical = evaluate_critical
+
+        self.invalid_move_dict = {
+                   'action is None':100,
+                   'index out of board': 100,
+                   'no player piece in chosen position': 10,
+                   'moving over own piece' : 5,
+                   'wrong piece usage' : 2,
+                   'causing self-check': 1,
+                   'other':100,
+        }
         
         if self.use_NN:
             self.act_nD_flattened = act_nD_flattened
         
-        self.action_space = spaces.Box(low=np.array([0,0,0]), high=np.array([15,7,7])) #, shape=(size__,))
+        self.action_space = MultiDiscrete([16,8,8]) 
         
         self.board_bank = []
         #if self.random_init:
@@ -200,29 +211,30 @@ class Chess(gym.Env):
             return l,n 
 
 
-    def evaluate_move(self, action, own = True, hypoth_opp = False):         
+    def wrong_piece_move(self, action, own = True, hypoth_opp = False):         
         """ evaluates feasibility of proposed piece move"""
         l,n,L,N = action
         
         if (self.check_board(L,N)*self.check_board(l,n))>0 :
-            valid_move = False
+            penalty_points = self.invalid_move_dict['moving over own piece']
         else:
             piece_type = np.abs(self.chessboard[n,l])
             if  piece_type == 1:
-                valid_move = self.evaluate_pawn(action, own, hypoth_opp)
+                penalty_points = self.evaluate_pawn(action, own, hypoth_opp)
             elif piece_type == 3:
-                valid_move = self.evaluate_bishop(action,own, hypoth_opp)
+                penalty_points = self.evaluate_bishop(action,own, hypoth_opp)
             elif piece_type == 5:
-                valid_move = self.evaluate_tower(action,own, hypoth_opp)
+                penalty_points = self.evaluate_tower(action,own, hypoth_opp)
             elif piece_type == 9:
-                valid_move = self.evaluate_tower(action,own, hypoth_opp) or self.evaluate_bishop(action,own, hypoth_opp)
+                penalty_points = max(self.evaluate_tower(action,own, hypoth_opp), self.evaluate_bishop(action,own, hypoth_opp))
             elif piece_type == 4:
-                valid_move = self.evaluate_horse(action,own, hypoth_opp)
+                penalty_points = self.evaluate_horse(action,own, hypoth_opp)
             elif piece_type == 10:
-                valid_move = self.evaluate_king(action,own, hypoth_opp )
+                penalty_points = self.evaluate_king(action,own, hypoth_opp )
             else:
                 raise('Undefined move')
-        return valid_move
+
+        return penalty_points
 
 
     def save_board_bank(self, critical = False):
@@ -284,6 +296,8 @@ class Chess(gym.Env):
             self.next_mover = 'player'
             if self.print_out:
                 self.render(opp_action, own = False)
+
+        return self.get_state()
         
 
     def revert_move(self):
@@ -331,7 +345,7 @@ class Chess(gym.Env):
                     return False
                 else:
                     self.chessboard = self.chessboard_backup
-                    self.is_valid_move(action, own = own, mirror = False)
+                    not self.check_invalid_move(action, own = own, mirror = False)
                     raise('Going to checked position!')
             return True
         elif tentative:
@@ -340,22 +354,33 @@ class Chess(gym.Env):
             raise('King disappeared')
         
         
-    def is_valid_move(self, action, own = True, mirror = False):
-        """ returns True if move is valid"""
+    def check_invalid_move(self, action, own = True, mirror = False):
+        """ returns False if move is valid, else invalid move code """
+
         if action is None:
-            return False
+            return self.invalid_move_dict['action is None']
         if len(action)==3:
             action = self.action_to_move(action, own = own)
             if action is None:
-                return False
+                return self.invalid_move_dict['action is None']
         if mirror:
             action = tuple([7-act for act in action])
         l,n,L,N = action
         sign = 2*int(own)-1
-        if sign*self.chessboard[n,l] > 0 and self.evaluate_move(action, own = own) and valid_action_space(action):
-            if self.validate_action(action, own = own) is not None:
-                return True
-        return False
+        if not valid_action_space(action):
+            return  self.invalid_move_dict['index out of board']
+        elif sign*self.chessboard[n,l] <= 0:
+            return self.invalid_move_dict['no player piece in chosen position']
+
+        penalty = self.wrong_piece_move(action, own = own)
+        if penalty:
+            return penalty
+
+        if self.validate_action(action, own = own) is not None:
+            return False
+        else:
+            print('Unclear reason for move fail!')
+            return self.invalid_move_dict['other']
         
     
     def pawn_to_queen(self):
@@ -376,18 +401,22 @@ class Chess(gym.Env):
         if isinstance(action, np.ndarray):
             action = tuple( action.astype(np.int) )
         
-        if random_gen and not self.is_valid_move(action):
+        if random_gen and self.check_invalid_move(action):
             action = self.random_move(own = True)
             info['move changed'] = action        
         
-        if self.is_valid_move(action):
+        if not self.check_invalid_move(action):
+            mate_check = False
             self.apply_move(action)
             self.next_mover = 'opponent'
             if self.print_out:
                 self.render(action)
             # basic reward for completing a valid move
             reward = self.rewards[2]
-            mate_check = self.check_mate(own = True)
+            #print(f'valid move occurred! reward: {reward}')
+            
+            if self.moves_counter > 1:
+                mate_check = self.check_mate(own = True)
             if mate_check:
                 if mate_check == 1:
                     # win game reward
@@ -406,7 +435,10 @@ class Chess(gym.Env):
                 self.next_mover = 'player'
                 if self.print_out:
                     self.render(opp_action, own = False)
-                mate_check = self.check_mate(own = False)
+
+                if self.moves_counter > 1:
+                    print(self.moves_counter)
+                    mate_check = self.check_mate(own = False)
                 if mate_check:
                     if mate_check == 1:
                         reward = -self.rewards[0]
@@ -422,9 +454,9 @@ class Chess(gym.Env):
                     self.recorded_boards.append(self.get_state().tolist())
         else:
             # invalid move!!
-            reward = -self.rewards[3]
+            reward = -self.check_invalid_move(action)
             done = True
-            info['outcome'] = 'fail'
+            info['outcome'] = 'wrong move'
             self.chessboard = np.zeros((8,8),dtype = np.int)
             
         if done and self.update_boards_bank:
@@ -449,7 +481,7 @@ class Chess(gym.Env):
         """  """
         net_output = self.model(self.get_state(own = False, torch_output = True))
         
-        action_bool_array = torch.zeros([16*8*8], dtype=torch.float32)
+        action_bool_array = torch.zeros([16*8*8], dtype=torch.bool)
         action_index = torch.argmax(net_output)
         action_bool_array[action_index] = 1        
         
@@ -465,10 +497,10 @@ class Chess(gym.Env):
         if self.use_NN:
             action_raw = self.get_NN_action()
             try:
-                self.is_valid_move(action_raw, own = False, mirror = True)
+                self.check_invalid_move(action_raw, own = False, mirror = True)
             except Exception:
-                self.is_valid_move(action_raw, own = False, mirror = True)
-            if self.is_valid_move(action_raw, own = False, mirror = True):
+                self.check_invalid_move(action_raw, own = False, mirror = True)
+            if not self.check_invalid_move(action_raw, own = False, mirror = True):
                 return tuple([7-i for i in self.action_to_move(action_raw, own = False)])
         if self.use_NN and self.print_out:
             print('NN returned invalid move. Random one is generated!')
@@ -551,7 +583,7 @@ class Chess(gym.Env):
     def validate_action(self,action, own):
         """ decide if action is valid (respects rules and doesn't put own king in check')"""
         if type(action) is tuple and len(action) == 4 and valid_action_space(action):
-            if self.evaluate_move(action, own = own):
+            if not self.wrong_piece_move(action, own = own):
                 valid, value = self.check_proof_action(action, own = own)
                 if valid:
                     return value
@@ -603,7 +635,7 @@ class Chess(gym.Env):
             piece_idx = np.abs(self.check_board(l,n))
             for moves in possible_moves(piece_idx, l, n, own=own ):
                 action = (l,n,moves[0], moves[1])
-                if self.evaluate_move(action, own = own, hypoth_opp = False) and valid_action_space(action):
+                if not self.wrong_piece_move(action, own = own, hypoth_opp = False) and valid_action_space(action):
                     if self.check_proof_action(action, own)[0]:
                         return True
         return False
@@ -621,13 +653,18 @@ class Chess(gym.Env):
         """ checks that move doesn't lead to check. if own is False checks an opponent move"""
         sign = 2*int(own)-1
         move_value = None
-        if self.apply_move(action, tentative = True, own = own):        
-            check_free = not self.check_check(own = own)
-            move_value = sign*(self.chessboard.sum()-self.chessboard_backup.sum())
-            self.revert_move()
+        check_free = True
+    
+        if self.moves_counter <= 1:
+            move_value = 0.1
         else:
-            self.revert_move()
-            check_free = False
+            if self.apply_move(action, tentative = True, own = own):        
+                check_free = not self.check_check(own = own)
+                move_value = sign*(self.chessboard.sum()-self.chessboard_backup.sum())
+                self.revert_move()
+            else:
+                self.revert_move()
+                check_free = False
             
         return check_free, move_value
                                      
@@ -645,34 +682,30 @@ class Chess(gym.Env):
                 l = l[0]
                 n = n[0]
             action = (l,n,L,N) 
-            if self.evaluate_move(action, own = not own, hypoth_opp = True) and valid_action_space(action):
+            if not self.wrong_piece_move(action, own = not own, hypoth_opp = True) and valid_action_space(action):
                 return True
         return False 
 
 
     def evaluate_king(self, action, own, hypoth_opp = False):
-        """ evaluate if proposed king move is possible"""
+        """ evaluate if proposed king move is possible. 
+        With None return move is fine, else reason is given """
         l,n,L,N = action
-        if hypoth_opp:
-            if (np.abs(L-l) <= 1 and np.abs(N-n) <= 1):
-                return True
-        else:
-            if (np.abs(L-l) <= 1 and np.abs(N-n) <= 1) and not self.checked_position(L,N, own):
-                return True
-        return False
+        if (np.abs(L-l) <= 1 and np.abs(N-n) <= 1):
+            if not hypoth_opp and self.checked_position(L,N, own):
+                return self.invalid_move_dict['causing self-check']
+            return None
+        return self.invalid_move_dict['wrong piece usage']
         
 
     def evaluate_horse(self, action, own, hypoth_opp = False):
         """ evaluate if proposed horse move is possible"""
         l,n,L,N = action
-        
         if ((np.abs(L-l) == 2 and np.abs(N-n) == 1) or (np.abs(L-l) == 1 and np.abs(N-n) == 2)):
-            if not hypoth_opp:
-                if self.check_proof_action(action, own)[0]:
-                    return True
-            else:
-                return True
-        return False
+            if not hypoth_opp and not self.check_proof_action(action, own)[0]:
+                return self.invalid_move_dict['causing self-check']
+            return None
+        return self.invalid_move_dict['wrong piece usage']
     
     
     def evaluate_pawn(self, action, own, hypoth_opp = False):
@@ -683,7 +716,6 @@ class Chess(gym.Env):
         condition1 = ( l == L and N == n+sign and self.chessboard[N,L] == 0)
         # diagonal attack
         condition2 = ( np.abs(L - l)==1 and N == n+sign and np.sign(self.chessboard[N,L]) == -sign)
-        
         # double first move
         if own:
             condition3 = ( l == L and n == 1 and N == n+2 and self.chessboard[2,L] == 0 and \
@@ -693,12 +725,10 @@ class Chess(gym.Env):
                           self.chessboard[4,L] == 0 and (self.check_board(L-1,4) <= 0 and self.check_board(L+1,4) <= 0) )
                       
         if condition1 or condition2 or condition3:
-            if not hypoth_opp:
-                if self.check_proof_action(action, own)[0]:
-                    return True
-            else:
-                return True
-        return False
+            if not hypoth_opp and not self.check_proof_action(action, own)[0]:
+                return self.invalid_move_dict['causing self-check']
+            return None
+        return self.invalid_move_dict['wrong piece usage']
     
     
     def evaluate_bishop(self, action, own, hypoth_opp = False):
@@ -708,16 +738,11 @@ class Chess(gym.Env):
         if np.abs(L-l) == np.abs(N-n):
             l_sign = np.sign(L-l)
             n_sign = np.sign(N-n)
-        else:
-            return False
-            
-        if all([self.check_board(l+l_sign*i, n+n_sign*i)== 0 for i in range(1,np.abs(L-l))  ] ):
-            if not hypoth_opp:
-                if self.check_proof_action(action, own)[0]:
-                    return True
-            else:
-                return True
-        return False
+            if all([self.check_board(l+l_sign*i, n+n_sign*i)== 0 for i in range(1,np.abs(L-l))  ] ):
+                if not hypoth_opp and not self.check_proof_action(action, own)[0]:
+                    return self.invalid_move_dict['causing self-check']
+                return 0
+        return self.invalid_move_dict['wrong piece usage']
                         
     
     def evaluate_tower(self, action, own, hypoth_opp = False):
@@ -734,12 +759,10 @@ class Chess(gym.Env):
                 if all([self.check_board(l, n+n_sign*i) == 0 for i in range(1,np.abs(N-n))  ] ):
                     valid = True
         if valid:
-            if not hypoth_opp:
-                if self.check_proof_action(action, own):
-                    return True
-            else:
-                return True
-        return False
+            if not hypoth_opp and not self.check_proof_action(action, own):
+                return self.invalid_move_dict['causing self-check']
+            return 0
+        return self.invalid_move_dict['wrong piece usage']
             
         
 def margin_check(in_vector, l = None, n = None):

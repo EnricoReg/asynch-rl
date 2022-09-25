@@ -266,7 +266,8 @@ class SimulationAgent:
         
         if single_run_log is not None:
             
-            if single_run_log[0,0] > 1 and not np.isnan(single_run_log[0,1] ):
+            #if single_run_log[0,0] > 1 and 
+            if not np.isnan(single_run_log[0,1] ):
             
                 if self.simulation_log is None:
                     self.simulation_log = single_run_log
@@ -576,24 +577,35 @@ class SimulationAgent:
     def stepAndRecord(self,state, action,action_index, noise_added):
         
         #################
-        try:
-            # in case of infeasibility issues, random_gen allows a feasible input to be re-generated inside the environment, to accelerate the learning process
-            action_bool_array = action.detach().numpy()
-            state_obs_1, reward_np, done, info = self.env.action(action_bool_array)
-            
-            if np.isnan(reward_np) or np.isinf(reward_np):
-                self.agent_run_variables['failed_iteration'] = True
-            
-            elif 'move changed' in info:
-                action = 0*action
-                action_index = self.env.get_action_idx(info['move changed'])
-                action[ action_index ] = 1
-            elif self.show_rendering and DEBUG:
-                # we show the selected action of the not corrected ones
-                print(f'selected action = {self.env.boolarray_to_action(action_bool_array)}')
+        #try:
 
-        except Exception:
+        # in case of infeasibility issues, random_gen allows a feasible input to be re-generated inside the environment, to accelerate the learning process
+        #print('Ready to start simulation step')
+        action_bool_array = action.detach().numpy()
+        #print('tensor detached')
+        state_obs_1, reward_np, done, info = self.env.action(action_bool_array)
+        #print('simulation run')
+
+        if np.isnan(reward_np) or np.isinf(reward_np):
             self.agent_run_variables['failed_iteration'] = True
+        
+        elif 'move changed' in info:
+            action = 0*action
+            action_index = self.env.get_action_idx(info['move changed'])
+            action[ action_index ] = 1
+        elif self.show_rendering and DEBUG:
+            pass
+            # we show the selected action of the not corrected ones
+            #(action_bool_array)}')
+
+        """
+        except Exception as e:
+            print(e)
+            for _ in range(1):
+                print('!!!!!!! Error occured while trying to simulate step')
+                time.sleep(1)
+            self.agent_run_variables['failed_iteration'] = True
+        """
 
         ################# 
         if not self.agent_run_variables['failed_iteration']:

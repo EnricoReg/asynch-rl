@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import torch
-from bashplotlib.scatterplot import plot_scatter
+#from bashplotlib.scatterplot import plot_scatter
 from pathlib import Path as createPath
 
 from datetime import datetime
@@ -312,7 +312,7 @@ class Multiprocess_RL_Environment:
                                     difficulty=self.difficulty, rewards = self.rewards, options = self.env_options)
         elif self.env_type == 'Chess':
             self.one_vs_one = True
-            return GymstyleChess(use_NN = True,  max_n_moves = self.sim_length_max  , rewards = self.rewards, print_out = self.show_rendering)
+            return GymstyleChess(use_NN = False,  max_n_moves = self.sim_length_max  , rewards = self.rewards, print_out = self.show_rendering)
         elif self.env_type == 'Connect4':
             self.one_vs_one = True
             return GymstyleConnect4(use_NN = True, rewards = self.rewards, print_out = self.show_rendering)
@@ -797,7 +797,9 @@ class Multiprocess_RL_Environment:
                     
                 else: # invalid model
                     if invalid_occurred:
-                        raise('consecutive invalid models')
+                        print('consecutive invalid models!!')
+                        print('consecutive invalid models!!')
+                        print('consecutive invalid models!!')
                     else:
                         invalid_occurred = True
 

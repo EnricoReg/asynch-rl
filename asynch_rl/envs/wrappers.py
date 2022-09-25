@@ -2,7 +2,7 @@ import gym
 import numpy as np
 import torch
 
-from gym.spaces import Box, Discrete
+from gym.spaces import Box, Discrete, MultiDiscrete
 
 ################################
 ################################
@@ -39,48 +39,52 @@ class DiscretizedObservationWrapper(gym.ObservationWrapper):
 class DiscretizedActionWrapper(gym.ActionWrapper):
     def __init__(self, env, n_bins_act=10, low_act=None, high_act=None):
         super().__init__(env)
-        assert isinstance(env.action_space, Box)
 
-        low_act = self.action_space.low if low_act is None else low_act
-        high_act = self.action_space.high if high_act is None else high_act
-        
-        if not hasattr(low_act, '__len__'):
-            low_act = [low_act]
-            high_act = [high_act]
+        self.multidiscrete = False
+        if isinstance(env.action_space, MultiDiscrete):
+            self.multidiscrete = True
+            self.n_bins_act = np.array(self.action_space.nvec.astype(int))
+            self.act_nD_flattened = np.stack(tuple(np.ndindex(tuple(self.n_bins_act))))
+
+        elif isinstance(env.action_space, Box):
+
+            low_act = self.action_space.low if low_act is None else low_act
+            high_act = self.action_space.high if high_act is None else high_act
             
-        if not isinstance(low_act, np.ndarray):
-            low_act = np.array(low_act)
-            high_act = np.array(high_act)
-        
-        self.act_space_dim = len(low_act)
-        
-        if self.act_space_dim >1:
-            
-            if not isinstance(n_bins_act, list):
-                self.n_bins_act = []
-                [self.n_bins_act.append(n_bins_act) for i in range(self.act_space_dim) ]
-            else:
-                self.n_bins_act = n_bins_act
+            if not hasattr(low_act, '__len__'):
+                low_act = [low_act]
+                high_act = [high_act]
                 
-            self.val_bins_act = [np.linspace(l, h, self.n_bins_act[i] + 1) for i,(l, h) in
-                             enumerate(zip(low_act.flatten(), high_act.flatten()))]
+            if not isinstance(low_act, np.ndarray):
+                low_act = np.array(low_act)
+                high_act = np.array(high_act)
             
-        elif self.act_space_dim  == 1:
-            self.n_bins_act = n_bins_act
-            self.val_bins_act = np.linspace(low_act[0], high_act[0], self.n_bins_act + 1)
+            self.act_space_dim = len(low_act)
+            
+            if self.act_space_dim >1:
+                
+                if not isinstance(n_bins_act, list):
+                    n_bins_act = [n_bins_act for i in range(self.act_space_dim) ]
+                    
+                self.val_bins_act = [np.linspace(l, h, n_bins_act[i] + 1) for i,(l, h) in
+                                enumerate(zip(low_act.flatten(), high_act.flatten()))]
+                
+            elif self.act_space_dim  == 1:
+                self.val_bins_act = np.linspace(low_act[0], high_act[0], n_bins_act + 1)
 
-        self.act_shape = self.action_space.shape
+            self.n_bins_act = np.array(n_bins_act)
+            self.act_shape = self.action_space.shape
 
-        print("New act space:", Discrete( self.get_actions_structure() ) )
-        self.action_space = Discrete( self.get_actions_structure() )
-        
-        #self.act_2D_flattened = None
-        if self.act_space_dim==1:
-            self.act_1D = self.val_bins_act
-        elif self.act_space_dim>=2:
-            arg = [self.val_bins_act[i] for i in range(self.act_space_dim)]
-            xx_out = np.meshgrid(*arg)
-            self.act_nD_flattened = np.stack(([xx.flatten() for xx in xx_out ]))
+            print("New act space:", Discrete( self.get_actions_structure() ) )
+            self.action_space = Discrete( self.get_actions_structure() )
+            
+            #self.act_2D_flattened = None
+            if self.act_space_dim==1:
+                self.act_1D = self.val_bins_act
+            elif self.act_space_dim>=2:
+                arg = [self.val_bins_act[i] for i in range(self.act_space_dim)]
+                xx_out = np.meshgrid(*arg)
+                self.act_nD_flattened = np.stack(([xx.flatten() for xx in xx_out ]))
             
     ###################################################
     # default
@@ -90,20 +94,28 @@ class DiscretizedActionWrapper(gym.ActionWrapper):
 
     ###################################################    
     def get_actions_structure(self):
-        return np.prod(np.array(self.n_bins_act)+1)   # n_actions depends strictly on the type of environment
+        n_bins_act = np.array(self.n_bins_act)
+        if not self.multidiscrete:
+            n_bins_act += 1
+        return np.prod(np.array(self.n_bins_act))   # n_actions depends strictly on the type of environment
     
     ###################################################
     def step(self, action, random_gen = False):
         return self.env.step(action, random_gen)
     
-    def boolarray_to_action(self, action_bool_array):
-        if self.act_space_dim  == 1 :
-            return self.act_1D[np.where(action_bool_array)[0]]
+    def discrete_action_number_to_multi_discrete(self, action_number):
+        if self.multidiscrete:
+            return self.act_nD_flattened[action_number].reshape(len(self.n_bins_act),)
+        elif self.act_space_dim  == 1 :
+            return self.act_1D[action_number[0]]
         elif self.act_space_dim >= 2 : 
-            return self.act_nD_flattened[:,np.where(action_bool_array)].reshape(self.act_space_dim,)
+            return self.act_nD_flattened[:,action_number].reshape(self.act_space_dim,)
+        else:
+            raise('something went wrong')
 
     def action(self, action_bool_array, random_gen = False):
-        action = self.boolarray_to_action(action_bool_array)        
+        action_number = np.where(action_bool_array)[0][0]
+        action = self.discrete_action_number_to_multi_discrete(action_number)        
         return self.step(action, random_gen)
 
         
