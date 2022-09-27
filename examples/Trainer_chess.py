@@ -141,7 +141,7 @@ def main(net_version = 0, n_iterations = 5, ray_parallelize = False, \
     function_inputs = locals().copy()
     
     env_type = 'Chess' 
-    model_type = 'LinearModel'
+    model_type = 'ConvModel'
     overwrite_params = ['rewards', 'rl_mode', 'layers_width', 'agents_number',\
                             'val_frequency']
 
@@ -176,7 +176,7 @@ def main(net_version = 0, n_iterations = 5, ray_parallelize = False, \
     
     
     rl_env = Multiprocess_RL_Environment(env_type, model_type, net_version,rl_mode = rl_mode , n_agents = agents_number, \
-                                         ray_parallelize=ray_parallelize, move_to_cuda=False, n_frames = 1, \
+                                         ray_parallelize=ray_parallelize, move_to_cuda=False, n_frames = 13, \
                                          replay_memory_size = replay_memory_size, mini_batch_size = mini_batch_size, \
                                          N_epochs = n_epochs, epsilon_min = epsilon_min , rewards = rewards, \
                                          epsilon_annealing_factor=epsilon_annealing_factor, discr_env_bins = discrete_action_bins , \

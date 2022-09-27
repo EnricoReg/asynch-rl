@@ -70,7 +70,7 @@ class Multiprocess_RL_Environment:
         self.minimum_reward = 0
         self.ma_coeff = 0.99
 
-        self.n_partial_outputs = n_partial_outputs
+        self.n_partial_outputs = n_partial_outputs if env_type == 'RobotEnv' else None
         self.map_output = map_output
         self.normalize_layers = normalize_layers
 
